@@ -1,5 +1,6 @@
 package com.abhay.payment.domain.model;
 
+import com.abhay.payment.domain.event.AmountCaptured;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -203,6 +204,27 @@ class TransactionTest {
         );
 
         assertTrue(transaction.heldAmount().isZero());
+    }
+
+    @Test
+    void shouldCaptureRemainingAmountAfterPartialRelease() {
+
+        Transaction transaction = createTransaction();
+
+        transaction.hold(clock);
+        transaction.release(Money.of("300", "INR"), clock);
+        transaction.capture(Money.of("700", "INR"), clock);
+
+        assertEquals(TransactionStatus.CAPTURED, transaction.status());
+        assertEquals(Money.of("700", "INR"), transaction.capturedAmount());
+        assertEquals(Money.of("300", "INR"), transaction.releasedAmount());
+        assertTrue(transaction.heldAmount().isZero());
+
+        AmountCaptured captureEvent = assertInstanceOf(
+                AmountCaptured.class,
+                transaction.events().get(transaction.events().size() - 1)
+        );
+        assertEquals(TransactionStatus.CAPTURED, captureEvent.resultingStatus());
     }
 
     @Test
