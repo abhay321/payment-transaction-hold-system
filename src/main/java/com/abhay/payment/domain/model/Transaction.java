@@ -105,6 +105,10 @@ public final class Transaction {
 
     /**
      * Captures all or part of the currently held amount.
+     *
+     * When the remaining hold reaches zero through capture, the transaction
+     * is CAPTURED even if an earlier operation released part of the original
+     * amount. The status describes how the final held balance was resolved.
      */
     public void capture(Money amount, Clock clock) {
         validateClock(clock);
@@ -118,13 +122,9 @@ public final class Transaction {
         capturedAmount = capturedAmount.add(amount);
         heldAmount = heldAmount.subtract(amount);
 
-        if (heldAmount.isZero()) {
-            status = releasedAmount.isZero()
-                    ? TransactionStatus.CAPTURED
-                    : TransactionStatus.RELEASED;
-        } else {
-            status = TransactionStatus.PARTIALLY_CAPTURED;
-        }
+        status = heldAmount.isZero()
+                ? TransactionStatus.CAPTURED
+                : TransactionStatus.PARTIALLY_CAPTURED;
 
         updatedAt = occurredAt;
 
