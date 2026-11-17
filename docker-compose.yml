@@ -1,0 +1,18 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: payment_holds
+      POSTGRES_USER: payment
+      POSTGRES_PASSWORD: payment
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payment -d payment_holds"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - payment-holds-data:/var/lib/postgresql/data
+volumes:
+  payment-holds-data:
