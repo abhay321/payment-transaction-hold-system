@@ -90,7 +90,7 @@ Released amount
 Transaction status
 Creation timestamp
 Last updated timestamp
-Version
+Expiry timestamp
 Transaction event history
 Monetary invariants
 
@@ -424,3 +424,43 @@ Concurrency.
 Idempotency.
 Unit and integration testing.
 Technical documentation and architecture decisions.
+
+
+20. Application API Example
+
+The application layer is exposed through `PaymentTransactionService`. Construct it with ports and infrastructure adapters; no Spring container is required.
+
+```java
+Clock clock = Clock.systemUTC();
+
+PaymentTransactionService service = new PaymentTransactionService(
+    new InMemoryTransactionRepository(),
+    new InMemoryIdempotencyStore(),
+    new FixedDurationExpiryPolicy(Duration.ofMinutes(30)),
+    clock
+);
+
+TransactionSnapshot created =
+    service.create(Money.of("1000.00", "INR"), "create-order-123");
+
+TransactionSnapshot held =
+    service.hold(created.id(), "hold-order-123");
+
+TransactionSnapshot captured =
+    service.capture(
+        created.id(),
+        Money.of("600.00", "INR"),
+        "capture-part-1-order-123"
+    );
+
+TransactionSnapshot released =
+    service.release(
+        created.id(),
+        Money.of("400.00", "INR"),
+        "release-rest-order-123"
+    );
+```
+
+The service returns immutable `TransactionSnapshot` values. Replaying an idempotency key with the same operation fingerprint returns the original snapshot; using that key for a different operation or payload is rejected.
+
+The current automated suite contains 62 tests. Run `mvn clean verify` to compile, execute tests and generate the JaCoCo report.
