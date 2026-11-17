@@ -348,4 +348,52 @@ void shouldRejectExpiryWhenExpiryTimestampIsNotConfigured() {
     assertEquals(Money.of("1000.00", "INR"), transaction.heldAmount());
     assertEquals(eventCountBeforeExpiry, transaction.events().size());
 }
+
+    @Test
+    void shouldSerializeConcurrentCapturesAndPreserveFinancialInvariant() throws Exception {
+        Transaction transaction = createTransaction();
+        transaction.hold(clock);
+
+        java.util.concurrent.ExecutorService executor =
+                java.util.concurrent.Executors.newFixedThreadPool(2);
+        java.util.concurrent.CountDownLatch ready =
+                new java.util.concurrent.CountDownLatch(2);
+        java.util.concurrent.CountDownLatch start =
+                new java.util.concurrent.CountDownLatch(1);
+
+        java.util.concurrent.Callable<Boolean> capture = () -> {
+            ready.countDown();
+            start.await();
+            try {
+                transaction.capture(Money.of("600", "INR"), clock);
+                return true;
+            } catch (IllegalArgumentException expected) {
+                return false;
+            }
+        };
+
+        try {
+            var first = executor.submit(capture);
+            var second = executor.submit(capture);
+            assertTrue(ready.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            start.countDown();
+
+            boolean firstSucceeded = first.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            boolean secondSucceeded = second.get(5, java.util.concurrent.TimeUnit.SECONDS);
+
+            assertNotEquals(firstSucceeded, secondSucceeded);
+            assertEquals(Money.of("600", "INR"), transaction.capturedAmount());
+            assertEquals(Money.of("400", "INR"), transaction.heldAmount());
+            assertEquals(TransactionStatus.PARTIALLY_CAPTURED, transaction.status());
+            assertEquals(
+                    transaction.originalAmount(),
+                    transaction.capturedAmount()
+                            .add(transaction.heldAmount())
+                            .add(transaction.releasedAmount())
+            );
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
 }
