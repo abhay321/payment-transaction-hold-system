@@ -27,11 +27,15 @@ public class JdbcTransactionRepository implements TransactionRepository {
     tx.id(),tx.originalAmount().amount(),tx.originalAmount().currency().getCurrencyCode(),tx.capturedAmount().amount(),
     tx.heldAmount().amount(),tx.releasedAmount().amount(),tx.status().name(),Timestamp.from(tx.createdAt()),
     Timestamp.from(tx.updatedAt()),tx.expiresAt()==null?null:Timestamp.from(tx.expiresAt()));
-   jdbc.update("DELETE FROM transaction_event WHERE transaction_id=?",tx.id());
-   for(TransactionEvent event:tx.events()) jdbc.update(
-    "INSERT INTO transaction_event(transaction_id,event_type,amount,currency,occurred_at,resulting_status) VALUES (?,?,?,?,?,?)",
-    tx.id(),event.getClass().getSimpleName(),event.amount().amount(),event.amount().currency().getCurrencyCode(),
-    Timestamp.from(event.occurredAt()),event.resultingStatus().name());
+   Integer persistedCount=jdbc.queryForObject("SELECT COUNT(*) FROM transaction_event WHERE transaction_id=?",Integer.class,tx.id());
+   int firstMissing=persistedCount==null?0:persistedCount;
+   if(firstMissing>tx.events().size()) throw new IllegalStateException("Persisted audit history is ahead of the aggregate");
+   for(int i=firstMissing;i<tx.events().size();i++){
+    TransactionEvent event=tx.events().get(i);
+    jdbc.update("INSERT INTO transaction_event(transaction_id,event_type,amount,currency,occurred_at,resulting_status) VALUES (?,?,?,?,?,?)",
+     tx.id(),event.getClass().getSimpleName(),event.amount().amount(),event.amount().currency().getCurrencyCode(),
+     Timestamp.from(event.occurredAt()),event.resultingStatus().name());
+   }
   });
  }
  @Override public Optional<Transaction> findById(UUID id) {
