@@ -86,6 +86,27 @@ public final class Transaction {
     }
 
     /**
+     * Reconstitutes an aggregate from durable state. Intended for repository adapters.
+     */
+    public static Transaction restore(UUID id, Money originalAmount, Money capturedAmount,
+            Money heldAmount, Money releasedAmount, TransactionStatus status,
+            Instant createdAt, Instant updatedAt, Instant expiresAt,
+            List<TransactionEvent> history) {
+        Transaction restored = new Transaction(id, originalAmount, createdAt);
+        restored.capturedAmount = Objects.requireNonNull(capturedAmount);
+        restored.heldAmount = Objects.requireNonNull(heldAmount);
+        restored.releasedAmount = Objects.requireNonNull(releasedAmount);
+        restored.status = Objects.requireNonNull(status);
+        restored.updatedAt = Objects.requireNonNull(updatedAt);
+        restored.expiresAt = expiresAt;
+        restored.events.clear();
+        restored.events.addAll(List.copyOf(history));
+        restored.validateInvariants();
+        if (restored.events.isEmpty()) throw new IllegalArgumentException("Persisted transaction must contain its creation event");
+        return restored;
+    }
+
+    /**
      * Places the entire transaction amount on hold.
      */
     public synchronized void hold(Clock clock) {
