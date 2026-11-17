@@ -29,3 +29,11 @@ jobs:
 
       - name: Build and run tests
         run: mvn --batch-mode --no-transfer-progress clean verify
+
+      - name: Upload JaCoCo report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+          if-no-files-found: warn
