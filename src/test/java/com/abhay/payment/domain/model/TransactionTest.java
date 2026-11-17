@@ -331,4 +331,21 @@ class TransactionTest {
                 () -> transaction.expire(clock)
         );
     }
+
+@Test
+void shouldRejectExpiryWhenExpiryTimestampIsNotConfigured() {
+    Transaction transaction = createTransaction();
+    transaction.hold(clock);
+
+    int eventCountBeforeExpiry = transaction.events().size();
+
+    assertThrows(
+            IllegalStateException.class,
+            () -> transaction.expire(clock)
+    );
+
+    assertEquals(TransactionStatus.HELD, transaction.status());
+    assertEquals(Money.of("1000.00", "INR"), transaction.heldAmount());
+    assertEquals(eventCountBeforeExpiry, transaction.events().size());
+}
 }
