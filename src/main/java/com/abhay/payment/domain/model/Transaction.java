@@ -88,7 +88,7 @@ public final class Transaction {
     /**
      * Places the entire transaction amount on hold.
      */
-    public void hold(Clock clock) {
+    public synchronized void hold(Clock clock) {
         validateClock(clock);
         ensureStatus(TransactionStatus.CREATED);
 
@@ -110,7 +110,7 @@ public final class Transaction {
      * is CAPTURED even if an earlier operation released part of the original
      * amount. The status describes how the final held balance was resolved.
      */
-    public void capture(Money amount, Clock clock) {
+    public synchronized void capture(Money amount, Clock clock) {
         validateClock(clock);
         validateOperationAmount(amount);
 
@@ -135,7 +135,7 @@ public final class Transaction {
     /**
      * Releases all or part of the currently held amount.
      */
-    public void release(Money amount, Clock clock) {
+    public synchronized void release(Money amount, Clock clock) {
         validateClock(clock);
         validateOperationAmount(amount);
 
@@ -160,7 +160,7 @@ public final class Transaction {
     /**
      * Expires the outstanding hold and releases its remaining amount.
      */
-    public void expire(Clock clock) {
+    public synchronized void expire(Clock clock) {
         validateClock(clock);
         ensureActiveHold();
 
@@ -185,7 +185,7 @@ public final class Transaction {
     /**
      * Assigns the expiry timestamp for an active hold.
      */
-    public void setExpiry(Instant expiry) {
+    public synchronized void setExpiry(Instant expiry) {
         Objects.requireNonNull(expiry, "Expiry cannot be null");
 
         if (status != TransactionStatus.HELD
@@ -215,7 +215,7 @@ public final class Transaction {
      * Returning a copy prevents callers from changing the aggregate's
      * internal history.
      */
-    public List<TransactionEvent> events() {
+    public synchronized List<TransactionEvent> events() {
         return List.copyOf(events);
     }
 
@@ -293,39 +293,39 @@ public final class Transaction {
         }
     }
 
-    public UUID id() {
+    public synchronized UUID id() {
         return id;
     }
 
-    public Money originalAmount() {
+    public synchronized Money originalAmount() {
         return originalAmount;
     }
 
-    public Money capturedAmount() {
+    public synchronized Money capturedAmount() {
         return capturedAmount;
     }
 
-    public Money heldAmount() {
+    public synchronized Money heldAmount() {
         return heldAmount;
     }
 
-    public Money releasedAmount() {
+    public synchronized Money releasedAmount() {
         return releasedAmount;
     }
 
-    public TransactionStatus status() {
+    public synchronized TransactionStatus status() {
         return status;
     }
 
-    public Instant createdAt() {
+    public synchronized Instant createdAt() {
         return createdAt;
     }
 
-    public Instant updatedAt() {
+    public synchronized Instant updatedAt() {
         return updatedAt;
     }
 
-    public Instant expiresAt() {
+    public synchronized Instant expiresAt() {
         return expiresAt;
     }
 }
