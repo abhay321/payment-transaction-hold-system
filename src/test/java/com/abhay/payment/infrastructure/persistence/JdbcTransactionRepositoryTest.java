@@ -34,7 +34,7 @@ class JdbcTransactionRepositoryTest {
     void savesAndReconstitutesAggregateAndEventHistory() {
         Clock clock = Clock.systemUTC();
         Transaction transaction = Transaction.create(
-                Money.of("125.00", Currency.getInstance("INR")), clock);
+                Money.of("125.00", "INR"), clock);
         repository.save(transaction);
         transaction.hold(clock);
         transaction.setExpiry(clock.instant().plus(Duration.ofMinutes(10)));
