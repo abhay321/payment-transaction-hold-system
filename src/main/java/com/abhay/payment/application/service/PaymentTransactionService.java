@@ -58,10 +58,12 @@ public final class PaymentTransactionService {
                 "HOLD|" + transactionId,
                 () -> {
                     Transaction transaction = find(transactionId);
-                    transaction.hold(clock);
-                    transaction.setExpiry(expiryPolicy.expiryAt(transaction.updatedAt()));
-                    transactions.save(transaction);
-                    return snapshot(transaction);
+                    synchronized (transaction) {
+                        transaction.hold(clock);
+                        transaction.setExpiry(expiryPolicy.expiryAt(transaction.updatedAt()));
+                        transactions.save(transaction);
+                        return snapshot(transaction);
+                    }
                 }
         );
     }
@@ -78,9 +80,11 @@ public final class PaymentTransactionService {
                 "CAPTURE|" + transactionId + "|" + amount,
                 () -> {
                     Transaction transaction = find(transactionId);
-                    transaction.capture(amount, clock);
-                    transactions.save(transaction);
-                    return snapshot(transaction);
+                    synchronized (transaction) {
+                        transaction.capture(amount, clock);
+                        transactions.save(transaction);
+                        return snapshot(transaction);
+                    }
                 }
         );
     }
@@ -97,9 +101,11 @@ public final class PaymentTransactionService {
                 "RELEASE|" + transactionId + "|" + amount,
                 () -> {
                     Transaction transaction = find(transactionId);
-                    transaction.release(amount, clock);
-                    transactions.save(transaction);
-                    return snapshot(transaction);
+                    synchronized (transaction) {
+                        transaction.release(amount, clock);
+                        transactions.save(transaction);
+                        return snapshot(transaction);
+                    }
                 }
         );
     }
@@ -111,9 +117,11 @@ public final class PaymentTransactionService {
                 "EXPIRE|" + transactionId,
                 () -> {
                     Transaction transaction = find(transactionId);
-                    transaction.expire(clock);
-                    transactions.save(transaction);
-                    return snapshot(transaction);
+                    synchronized (transaction) {
+                        transaction.expire(clock);
+                        transactions.save(transaction);
+                        return snapshot(transaction);
+                    }
                 }
         );
     }
@@ -124,18 +132,20 @@ public final class PaymentTransactionService {
     }
 
     private TransactionSnapshot snapshot(Transaction transaction) {
-        return new TransactionSnapshot(
-                transaction.id(),
-                transaction.originalAmount(),
-                transaction.capturedAmount(),
-                transaction.heldAmount(),
-                transaction.releasedAmount(),
-                transaction.status(),
-                transaction.createdAt(),
-                transaction.updatedAt(),
-                transaction.expiresAt(),
-                transaction.events()
-        );
+        synchronized (transaction) {
+            return new TransactionSnapshot(
+                    transaction.id(),
+                    transaction.originalAmount(),
+                    transaction.capturedAmount(),
+                    transaction.heldAmount(),
+                    transaction.releasedAmount(),
+                    transaction.status(),
+                    transaction.createdAt(),
+                    transaction.updatedAt(),
+                    transaction.expiresAt(),
+                    transaction.events()
+            );
+        }
     }
 
     private Transaction find(UUID transactionId) {
