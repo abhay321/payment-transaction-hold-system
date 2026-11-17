@@ -4,7 +4,7 @@ CREATE TABLE payment_transaction (
  status VARCHAR(32) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL, updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
  expires_at TIMESTAMP WITH TIME ZONE,
  CONSTRAINT ck_transaction_amounts_non_negative CHECK (original_amount > 0 AND captured_amount >= 0 AND held_amount >= 0 AND released_amount >= 0),
- CONSTRAINT ck_transaction_accounting CHECK (original_amount = captured_amount + held_amount + released_amount)
+ CONSTRAINT ck_transaction_accounting CHECK ((status = 'CREATED' AND captured_amount = 0 AND held_amount = 0 AND released_amount = 0) OR (original_amount = captured_amount + held_amount + released_amount))
 );
 CREATE INDEX idx_payment_transaction_status_expiry ON payment_transaction(status, expires_at);
 CREATE TABLE transaction_event (
