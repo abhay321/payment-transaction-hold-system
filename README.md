@@ -16,7 +16,7 @@ The remaining ₹200 is released.
 
 This project models that lifecycle and enforces the business rules around it.
 
-The implementation is an in-memory application intended for machine coding interviews and software design learning. It does not connect to banks or move real money.
+The project includes a Spring Boot HTTP adapter and PostgreSQL JDBC repository alongside the original in-memory learning adapters. It does not connect to banks or move real money.
 
 2. Goals
 Implement a transaction lifecycle.
@@ -40,7 +40,7 @@ AssertJ	Readable assertions
 JaCoCo	Test coverage
 Git	Version control
 
-No Spring Boot is required. The initial application uses plain Java to demonstrate core programming and architectural concepts.
+Spring Boot 3.5, Spring MVC, JDBC, Spring Security HTTP Basic, Actuator, Flyway and PostgreSQL are used by the optional runtime layer. The domain and application services remain plain Java.
 
 4. Functional Requirements
 Transaction creation
@@ -394,7 +394,7 @@ Payment-provider integration.
 Monitoring and alerting.
 Encryption and sensitive-data handling.
 
-These are deliberately outside the initial in-memory machine coding implementation.
+The reference runtime demonstrates selected controls, but production deployment still requires durable idempotency, distributed concurrency control, tenant authorization, reconciliation, provider integration, operational runbooks and security review. Do not use this sample to process real funds.
 
 18. Interview Questions
 Why is BigDecimal preferred over double?
@@ -463,4 +463,13 @@ TransactionSnapshot released =
 
 The service returns immutable `TransactionSnapshot` values. Replaying an idempotency key with the same operation fingerprint returns the original snapshot; using that key for a different operation or payload is rejected.
 
-The current automated suite contains 62 tests. Run `mvn clean verify` to compile, execute tests and generate the JaCoCo report.
+The original domain/application suite contains 62 tests. Run `mvn clean verify` to compile, execute tests and generate the JaCoCo report. Coverage HTML is written to `target/site/jacoco/index.html`.
+
+
+21. HTTP API and PostgreSQL runtime
+
+Start PostgreSQL with docker compose up -d db, set PAYMENT_API_PASSWORD to a strong secret, and run mvn spring-boot:run. The API listens on port 8080. HTTP Basic authentication is required for transaction endpoints; /actuator/health and /actuator/info are public. Configure DATABASE_URL, DATABASE_USERNAME, DATABASE_PASSWORD, PAYMENT_API_USERNAME, PAYMENT_API_PASSWORD and PAYMENT_HOLD_DURATION through the environment. Never commit credentials.
+
+Endpoints: POST /api/v1/transactions; POST /api/v1/transactions/{id}/hold; POST /api/v1/transactions/{id}/capture; POST /api/v1/transactions/{id}/release; POST /api/v1/transactions/{id}/expire; GET /api/v1/transactions/{id}. Mutations require an Idempotency-Key header.
+
+Important: the idempotency adapter remains process-local and loses keys on restart. The service synchronization is JVM-local. PostgreSQL stores transaction state and ordered audit events, but multi-instance optimistic concurrency and durable idempotency are not implemented. Do not expose this sample to production traffic.
