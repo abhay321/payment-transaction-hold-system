@@ -55,10 +55,11 @@ Capture
 Capture all or part of the held amount.
 Support multiple partial captures.
 Prevent capture beyond the remaining held balance.
-Transition to CAPTURED when no held balance remains and the full transaction amount has been captured.
+Transition to CAPTURED when the remaining held balance is fully captured.
 Release
 Release all or part of the remaining held balance.
 Prevent releasing more than the held balance.
+Transition to RELEASED when the remaining held balance is fully released.
 Prevent further capture or release after the transaction reaches a terminal state.
 Idempotency
 Repeated requests with the same key and same payload must not execute twice.
@@ -89,7 +90,7 @@ Released amount
 Transaction status
 Creation timestamp
 Last updated timestamp
-Version
+Expiry timestamp
 Transaction event history
 Monetary invariants
 
@@ -131,10 +132,15 @@ PARTIALLY_RELEASED	Capture remaining	CAPTURED
 PARTIALLY_RELEASED	Release remaining	RELEASED
 HELD	Expire	EXPIRED
 PARTIALLY_CAPTURED	Expire	EXPIRED
+PARTIALLY_RELEASED	Expire	EXPIRED
 
-An expired transaction releases its remaining held amount.
+Terminal states:
 
-Terminal states cannot be transitioned further.
+CAPTURED
+RELEASED
+EXPIRED
+
+A terminal disposition describes how the outstanding held balance was resolved. It does not imply that the entire original amount was captured or released. For example, after releasing INR 300 and capturing the remaining INR 700, the final state is CAPTURED, with captured amount INR 700 and released amount INR 300.
 
 8. Architecture
 
@@ -224,6 +230,7 @@ Why:
 Avoids hard-coded implementations.
 Simplifies testing.
 Reduces coupling.
+
 10. SOLID Principles
 Single Responsibility Principle
 
@@ -262,7 +269,7 @@ Used where a closed set of domain event types is useful.
 
 Pattern matching for switch
 
-Used for concise handling of known event types.
+Used for concise handling of known domain event types.
 
 Switch expressions
 
@@ -325,6 +332,7 @@ Time-based tests
 Expired holds.
 Non-expired holds.
 Boundary timestamp behavior.
+
 15. Running the Application
 
 Requirements:
@@ -365,7 +373,7 @@ Floating-point arithmetic is inappropriate for exact monetary values.
 
 Why transaction-level locking?
 
-It allows independent transactions to progress concurrently instead of serializing every operation globally.
+It allows independent transactions to progress concurrently instead of serializing every operation with a global lock.
 
 Why an explicit state machine?
 
@@ -399,6 +407,7 @@ What happens when capture and release execute simultaneously?
 Why is ConcurrentHashMap not sufficient for thread safety?
 How would you move this implementation to PostgreSQL?
 How would you handle a crash after an external payment provider captures funds but before the local system records the result?
+
 19. Learning Outcomes
 
 This repository demonstrates:
@@ -415,3 +424,43 @@ Concurrency.
 Idempotency.
 Unit and integration testing.
 Technical documentation and architecture decisions.
+
+
+20. Application API Example
+
+The application layer is exposed through `PaymentTransactionService`. Construct it with ports and infrastructure adapters; no Spring container is required.
+
+```java
+Clock clock = Clock.systemUTC();
+
+PaymentTransactionService service = new PaymentTransactionService(
+    new InMemoryTransactionRepository(),
+    new InMemoryIdempotencyStore(),
+    new FixedDurationExpiryPolicy(Duration.ofMinutes(30)),
+    clock
+);
+
+TransactionSnapshot created =
+    service.create(Money.of("1000.00", "INR"), "create-order-123");
+
+TransactionSnapshot held =
+    service.hold(created.id(), "hold-order-123");
+
+TransactionSnapshot captured =
+    service.capture(
+        created.id(),
+        Money.of("600.00", "INR"),
+        "capture-part-1-order-123"
+    );
+
+TransactionSnapshot released =
+    service.release(
+        created.id(),
+        Money.of("400.00", "INR"),
+        "release-rest-order-123"
+    );
+```
+
+The service returns immutable `TransactionSnapshot` values. Replaying an idempotency key with the same operation fingerprint returns the original snapshot; using that key for a different operation or payload is rejected.
+
+The current automated suite contains 62 tests. Run `mvn clean verify` to compile, execute tests and generate the JaCoCo report.
