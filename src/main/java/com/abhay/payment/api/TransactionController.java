@@ -18,7 +18,7 @@ public class TransactionController {
  public record CreateRequest(@DecimalMin(value="0.0001") BigDecimal amount,@NotBlank @Pattern(regexp="[A-Z]{3}") String currency){}
  public record AmountRequest(@DecimalMin(value="0.0001") BigDecimal amount,@NotBlank @Pattern(regexp="[A-Z]{3}") String currency){}
  @PostMapping @ResponseStatus(HttpStatus.CREATED)
- public TransactionSnapshot create(@Valid @RequestBody CreateRequest request,@RequestHeader("Idempotency-Key") @NotBlank String key){return service.create(Money.of(request.amount(),request.currency()),key);}
+ public TransactionSnapshot create(@Valid @RequestBody CreateRequest request,@RequestHeader("Idempotency-Key") @NotBlank String key){return service.create(Money.of(request.amount(),java.util.Currency.getInstance(request.currency())),key);}
  @PostMapping("/{id}/hold") public TransactionSnapshot hold(@PathVariable UUID id,@RequestHeader("Idempotency-Key") @NotBlank String key){return service.hold(id,key);}
  @PostMapping("/{id}/capture") public TransactionSnapshot capture(@PathVariable UUID id,@Valid @RequestBody AmountRequest request,@RequestHeader("Idempotency-Key") @NotBlank String key){return service.capture(id,Money.of(request.amount(),request.currency()),key);}
  @PostMapping("/{id}/release") public TransactionSnapshot release(@PathVariable UUID id,@Valid @RequestBody AmountRequest request,@RequestHeader("Idempotency-Key") @NotBlank String key){return service.release(id,Money.of(request.amount(),request.currency()),key);}
