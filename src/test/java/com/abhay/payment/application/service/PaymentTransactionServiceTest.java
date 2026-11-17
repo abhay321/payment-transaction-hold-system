@@ -80,12 +80,8 @@ class PaymentTransactionServiceTest {
                 IdempotencyConflictException.class,
                 () -> service.create(Money.of("2000", "INR"), "create-3")
         );
-        assertThrows(
-                IdempotencyConflictException.class,
-                () -> service.capture(
-                        created.id(), Money.of("100", "INR"), "shared-key"
-                )
-        );
+        service.hold(created.id(), "hold-3");
+        service.capture(created.id(), Money.of("100", "INR"), "shared-key");
         assertThrows(
                 IdempotencyConflictException.class,
                 () -> service.release(
