@@ -20,8 +20,8 @@ public class TransactionController {
  @PostMapping @ResponseStatus(HttpStatus.CREATED)
  public TransactionSnapshot create(@Valid @RequestBody CreateRequest request,@RequestHeader("Idempotency-Key") @NotBlank String key){return service.create(Money.of(request.amount(),java.util.Currency.getInstance(request.currency())),key);}
  @PostMapping("/{id}/hold") public TransactionSnapshot hold(@PathVariable UUID id,@RequestHeader("Idempotency-Key") @NotBlank String key){return service.hold(id,key);}
- @PostMapping("/{id}/capture") public TransactionSnapshot capture(@PathVariable UUID id,@Valid @RequestBody AmountRequest request,@RequestHeader("Idempotency-Key") @NotBlank String key){return service.capture(id,Money.of(request.amount(),request.currency()),key);}
- @PostMapping("/{id}/release") public TransactionSnapshot release(@PathVariable UUID id,@Valid @RequestBody AmountRequest request,@RequestHeader("Idempotency-Key") @NotBlank String key){return service.release(id,Money.of(request.amount(),request.currency()),key);}
+ @PostMapping("/{id}/capture") public TransactionSnapshot capture(@PathVariable UUID id,@Valid @RequestBody AmountRequest request,@RequestHeader("Idempotency-Key") @NotBlank String key){return service.capture(id,Money.of(request.amount(),java.util.Currency.getInstance(request.currency())),key);}
+ @PostMapping("/{id}/release") public TransactionSnapshot release(@PathVariable UUID id,@Valid @RequestBody AmountRequest request,@RequestHeader("Idempotency-Key") @NotBlank String key){return service.release(id,Money.of(request.amount(),java.util.Currency.getInstance(request.currency())),key);}
  @PostMapping("/{id}/expire") public TransactionSnapshot expire(@PathVariable UUID id,@RequestHeader("Idempotency-Key") @NotBlank String key){return service.expire(id,key);}
  @GetMapping("/{id}") public TransactionSnapshot get(@PathVariable UUID id){return service.get(id);}
 }
