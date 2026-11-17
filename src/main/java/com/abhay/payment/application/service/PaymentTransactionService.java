@@ -1,5 +1,6 @@
 package com.abhay.payment.application.service;
 
+import com.abhay.payment.application.dto.TransactionSnapshot;
 import com.abhay.payment.application.exception.TransactionNotFoundException;
 import com.abhay.payment.application.port.ExpiryPolicy;
 import com.abhay.payment.application.port.IdempotencyStore;
@@ -37,7 +38,7 @@ public final class PaymentTransactionService {
         this.clock = Objects.requireNonNull(clock);
     }
 
-    public Transaction create(Money amount, String idempotencyKey) {
+    public TransactionSnapshot create(Money amount, String idempotencyKey) {
         Objects.requireNonNull(amount, "Amount cannot be null");
         return idempotency.execute(
                 idempotencyKey,
@@ -45,12 +46,12 @@ public final class PaymentTransactionService {
                 () -> {
                     Transaction transaction = Transaction.create(amount, clock);
                     transactions.save(transaction);
-                    return transaction;
+                    return snapshot(transaction);
                 }
         );
     }
 
-    public Transaction hold(UUID transactionId, String idempotencyKey) {
+    public TransactionSnapshot hold(UUID transactionId, String idempotencyKey) {
         Objects.requireNonNull(transactionId, "Transaction id cannot be null");
         return idempotency.execute(
                 idempotencyKey,
@@ -60,12 +61,12 @@ public final class PaymentTransactionService {
                     transaction.hold(clock);
                     transaction.setExpiry(expiryPolicy.expiryAt(transaction.updatedAt()));
                     transactions.save(transaction);
-                    return transaction;
+                    return snapshot(transaction);
                 }
         );
     }
 
-    public Transaction capture(
+    public TransactionSnapshot capture(
             UUID transactionId,
             Money amount,
             String idempotencyKey
@@ -79,12 +80,12 @@ public final class PaymentTransactionService {
                     Transaction transaction = find(transactionId);
                     transaction.capture(amount, clock);
                     transactions.save(transaction);
-                    return transaction;
+                    return snapshot(transaction);
                 }
         );
     }
 
-    public Transaction release(
+    public TransactionSnapshot release(
             UUID transactionId,
             Money amount,
             String idempotencyKey
@@ -98,12 +99,12 @@ public final class PaymentTransactionService {
                     Transaction transaction = find(transactionId);
                     transaction.release(amount, clock);
                     transactions.save(transaction);
-                    return transaction;
+                    return snapshot(transaction);
                 }
         );
     }
 
-    public Transaction expire(UUID transactionId, String idempotencyKey) {
+    public TransactionSnapshot expire(UUID transactionId, String idempotencyKey) {
         Objects.requireNonNull(transactionId, "Transaction id cannot be null");
         return idempotency.execute(
                 idempotencyKey,
@@ -112,14 +113,29 @@ public final class PaymentTransactionService {
                     Transaction transaction = find(transactionId);
                     transaction.expire(clock);
                     transactions.save(transaction);
-                    return transaction;
+                    return snapshot(transaction);
                 }
         );
     }
 
-    public Transaction get(UUID transactionId) {
+    public TransactionSnapshot get(UUID transactionId) {
         Objects.requireNonNull(transactionId, "Transaction id cannot be null");
-        return find(transactionId);
+        return snapshot(find(transactionId));
+    }
+
+    private TransactionSnapshot snapshot(Transaction transaction) {
+        return new TransactionSnapshot(
+                transaction.id(),
+                transaction.originalAmount(),
+                transaction.capturedAmount(),
+                transaction.heldAmount(),
+                transaction.releasedAmount(),
+                transaction.status(),
+                transaction.createdAt(),
+                transaction.updatedAt(),
+                transaction.expiresAt(),
+                transaction.events()
+        );
     }
 
     private Transaction find(UUID transactionId) {
