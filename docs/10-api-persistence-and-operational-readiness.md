@@ -30,3 +30,20 @@ JaCoCo generates target/site/jacoco/index.html. The original 62-test core suite 
 6. Provider integration, reconciliation, outbox delivery and recovery runbooks remain out of scope.
 
 This is an educational reference runtime, not a production payment processor. Never use it to authorize, capture or move real funds.
+
+
+## Coverage review (CI JaCoCo report)
+
+The first CI report for this branch (JaCoCo 0.8.14, 24 classes) reports **82% instruction coverage and 72% branch coverage** overall. These figures include the original core tests plus the JDBC repository round-trip test.
+
+| Area | Instruction coverage | Branch coverage | Review |
+|---|---:|---:|---|
+| Domain model | 95% | 86% | Strong baseline; add targeted boundary tests for expiry and terminal transitions |
+| Application service | 88% | n/a | Add missing-transaction and failure-path tests for every use case |
+| JDBC persistence | 90% | 60% | Add rollback, unknown event, missing-row and concurrent-writer tests |
+| Domain events | 77% | 54% | Exercise invalid constructor inputs for every event record |
+| Idempotency adapter | 100% | 87% | Add tests for key collision/failure/replay edge cases |
+| REST API | 0% | n/a | No controller or exception-handler tests yet; highest-priority gap |
+| Runtime configuration/security | 0% | 0% | Add application-context tests for missing credentials, configured credentials and authorization rules |
+
+The REST API and runtime configuration are currently untested by the automated suite. The 82% aggregate figure therefore must not be interpreted as production-level coverage. The workflow publishes the full JaCoCo HTML report as the jacoco-report artifact for each run.
