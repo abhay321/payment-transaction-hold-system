@@ -37,21 +37,22 @@ public class JdbcTransactionRepository implements TransactionRepository {
  @Override public Optional<Transaction> findById(UUID id) {
   List<Transaction> found=jdbc.query("SELECT * FROM payment_transaction WHERE id=?",(rs,n)->{
    String currency=rs.getString("currency");
-   Money original=Money.of(rs.getBigDecimal("original_amount"),Currency.getInstance(currency));
+   Money original=readMoney(rs.getBigDecimal("original_amount"),currency);
    List<TransactionEvent> history=jdbc.query("SELECT * FROM transaction_event WHERE transaction_id=? ORDER BY id",
     (er,i)->toEvent(id,er.getString("event_type"),
-     Money.of(er.getBigDecimal("amount"),Currency.getInstance(er.getString("currency"))),
+     readMoney(er.getBigDecimal("amount"),er.getString("currency")),
      er.getTimestamp("occurred_at").toInstant(),TransactionStatus.valueOf(er.getString("resulting_status"))),id);
    Timestamp expiry=rs.getTimestamp("expires_at");
    return Transaction.restore(id,original,
-    Money.of(rs.getBigDecimal("captured_amount"),Currency.getInstance(currency)),
-    Money.of(rs.getBigDecimal("held_amount"),Currency.getInstance(currency)),
-    Money.of(rs.getBigDecimal("released_amount"),Currency.getInstance(currency)),
+    readMoney(rs.getBigDecimal("captured_amount"),currency),
+    readMoney(rs.getBigDecimal("held_amount"),currency),
+    readMoney(rs.getBigDecimal("released_amount"),currency),
     TransactionStatus.valueOf(rs.getString("status")),rs.getTimestamp("created_at").toInstant(),
     rs.getTimestamp("updated_at").toInstant(),expiry==null?null:expiry.toInstant(),history);
   },id);
   return found.stream().findFirst();
  }
+ private Money readMoney(java.math.BigDecimal amount,String currencyCode){ Currency currency=Currency.getInstance(currencyCode); return Money.of(amount.setScale(currency.getDefaultFractionDigits()),currency); }
  private TransactionEvent toEvent(UUID id,String type,Money amount,Instant at,TransactionStatus status){
   return switch(type){
    case "TransactionCreated" -> new TransactionCreated(id,amount,at);
