@@ -19,6 +19,7 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Currency;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -127,7 +128,7 @@ public final class JdbcIdempotencyStore implements IdempotencyStore {
     }
 
     private Money money(MoneyData data) {
-        return Money.of(data.amount(), data.currency());
+        return Money.of(data.amount(), Currency.getInstance(data.currency()));
     }
 
     private record Record(String fingerprint, String responseJson) { }
