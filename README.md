@@ -472,4 +472,13 @@ Start PostgreSQL with docker compose up -d db, set PAYMENT_API_PASSWORD to a str
 
 Endpoints: POST /api/v1/transactions; POST /api/v1/transactions/{id}/hold; POST /api/v1/transactions/{id}/capture; POST /api/v1/transactions/{id}/release; POST /api/v1/transactions/{id}/expire; GET /api/v1/transactions/{id}. Mutations require an Idempotency-Key header.
 
-Important: the idempotency adapter remains process-local and loses keys on restart. The service synchronization is JVM-local. PostgreSQL stores transaction state and ordered audit events, but multi-instance optimistic concurrency and durable idempotency are not implemented. Do not expose this sample to production traffic.
+Durability and consistency: PostgreSQL stores idempotency keys and serialized operation results. The idempotency record, transaction aggregate, audit history and outbox event are committed in one database transaction. A database version column enforces optimistic locking across application instances; stale writes return HTTP 409. A polling outbox dispatcher publishes events at least once. The included publisher writes structured logs as a local demonstration adapter; replace it with a durable broker publisher and make consumers deduplicate by outbox event ID before using a real event bus. Request correlation IDs are returned in X-Correlation-Id and included in JSON logs. Micrometer tracing can export OTLP traces, and Actuator exposes health, metrics and Prometheus endpoints.
+
+
+22. Durable consistency and operations
+
+The V2 Flyway migration adds the idempotency ledger, optimistic-lock version, and transactional outbox. Idempotency keys are globally unique within this single-tenant sample; a multi-tenant deployment must scope keys by authenticated merchant/account. Failed use cases roll back the idempotency placeholder together with aggregate and event writes. Replays return the original stored snapshot; reusing a key with a different fingerprint returns HTTP 409.
+
+The outbox dispatcher uses row-level locking with SKIP LOCKED so multiple instances can poll concurrently. Delivery is at-least-once: a process crash after external publication but before marking the row published can cause a duplicate. Consumers must deduplicate using the stable outbox event ID. The included logging publisher is only a local adapter, not a message broker integration. Failed publishes use bounded exponential retry delay and retain the last error.
+
+The PostgreSQL Testcontainers suite covers API idempotency replay and conflict, durable outbox writes, and stale aggregate rejection. Run `mvn clean verify`; Docker must be available for the PostgreSQL integration suite. The API remains an educational reference and must not process real funds. Production use additionally requires tenant authorization, secrets management, TLS/network policy, broker integration, consumer deduplication, retention/cleanup policies, alerting, reconciliation and security review.
