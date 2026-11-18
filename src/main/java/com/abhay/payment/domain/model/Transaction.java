@@ -312,7 +312,9 @@ public final class Transaction {
                 .add(heldAmount)
                 .add(releasedAmount);
 
-        if (!originalAmount.equals(accountedAmount)) {
+        boolean unallocatedCreated = status == TransactionStatus.CREATED
+                && capturedAmount.isZero() && heldAmount.isZero() && releasedAmount.isZero();
+        if (!unallocatedCreated && !originalAmount.equals(accountedAmount)) {
             throw new IllegalStateException(
                     "Transaction financial invariant violated"
             );
