@@ -40,6 +40,7 @@ class PaymentApiPostgresIntegrationTest {
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("PAYMENT_API_PASSWORD", () -> "integration-test-password");
+        registry.add("payment.outbox.poll-delay", () -> "60000");
     }
 
     @Autowired MockMvc mvc;
