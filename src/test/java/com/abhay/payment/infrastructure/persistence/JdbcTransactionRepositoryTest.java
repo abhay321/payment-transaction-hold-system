@@ -56,6 +56,19 @@ class JdbcTransactionRepositoryTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM transaction_outbox", Integer.class)).isEqualTo(2);
     }
 
+
+    @Test
+    void restoresCreatedAggregateBeforeItsFirstHold() {
+        Transaction created = Transaction.create(Money.of("125.00", "INR"), clock);
+        repository.save(created);
+
+        Transaction restored = repository.findById(created.id()).orElseThrow();
+
+        assertThat(restored.status()).isEqualTo(TransactionStatus.CREATED);
+        assertThat(restored.heldAmount()).isEqualTo(Money.of("0.00", "INR"));
+        assertThat(restored.persistenceVersion()).isEqualTo(1);
+    }
+
     @Test
     void rejectsStaleAggregateAndDoesNotAppendDuplicateHistory() {
         Transaction created = Transaction.create(Money.of("125.00", "INR"), clock);
