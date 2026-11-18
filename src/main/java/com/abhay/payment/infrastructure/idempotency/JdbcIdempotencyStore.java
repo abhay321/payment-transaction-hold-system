@@ -29,7 +29,7 @@ import java.util.function.Supplier;
  * history and outbox inserts participate in this same REQUIRED transaction.
  */
 @Repository
-public final class JdbcIdempotencyStore implements IdempotencyStore {
+public class JdbcIdempotencyStore implements IdempotencyStore {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final ObjectMapper mapper;
