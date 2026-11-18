@@ -74,6 +74,12 @@ public final class Money implements Comparable<Money> {
         return amount;
     }
 
+    /** JavaBean accessor for JSON API serialization. */
+    public BigDecimal getAmount() { return amount; }
+
+    /** Stable ISO currency code for JSON API serialization. */
+    public String getCurrencyCode() { return currency.getCurrencyCode(); }
+
     public Currency currency() {
         return currency;
     }

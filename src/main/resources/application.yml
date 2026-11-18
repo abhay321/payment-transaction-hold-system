@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: payment-transaction-hold-system
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/payment_holds}
+    username: ${DATABASE_USERNAME:payment}
+    password: ${DATABASE_PASSWORD:payment}
+  flyway:
+    enabled: true
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+payment:
+  hold:
+    duration: ${PAYMENT_HOLD_DURATION:PT30M}
+server:
+  error:
+    include-message: never
+    include-stacktrace: never
