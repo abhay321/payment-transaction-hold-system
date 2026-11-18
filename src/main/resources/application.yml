@@ -11,14 +11,22 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       probes:
         enabled: true
+  tracing:
+    sampling:
+      probability: ${OTEL_TRACES_SAMPLER_ARG:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 payment:
   hold:
     duration: ${PAYMENT_HOLD_DURATION:PT30M}
+  outbox:
+    poll-delay: ${PAYMENT_OUTBOX_POLL_DELAY:1000}
 server:
   error:
     include-message: never

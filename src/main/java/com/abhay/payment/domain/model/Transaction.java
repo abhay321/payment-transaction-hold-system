@@ -38,6 +38,9 @@ public final class Transaction {
     private Instant updatedAt;
     private Instant expiresAt;
 
+    // Database concurrency token; ignored by domain business rules.
+    private long persistenceVersion;
+
     private Transaction(
             UUID id,
             Money originalAmount,
@@ -92,6 +95,14 @@ public final class Transaction {
             Money heldAmount, Money releasedAmount, TransactionStatus status,
             Instant createdAt, Instant updatedAt, Instant expiresAt,
             List<TransactionEvent> history) {
+        return restore(id, originalAmount, capturedAmount, heldAmount, releasedAmount, status,
+                createdAt, updatedAt, expiresAt, history, 0L);
+    }
+
+    public static Transaction restore(UUID id, Money originalAmount, Money capturedAmount,
+            Money heldAmount, Money releasedAmount, TransactionStatus status,
+            Instant createdAt, Instant updatedAt, Instant expiresAt,
+            List<TransactionEvent> history, long persistenceVersion) {
         Transaction restored = new Transaction(id, originalAmount, createdAt);
         restored.capturedAmount = Objects.requireNonNull(capturedAmount);
         restored.heldAmount = Objects.requireNonNull(heldAmount);
@@ -99,6 +110,8 @@ public final class Transaction {
         restored.status = Objects.requireNonNull(status);
         restored.updatedAt = Objects.requireNonNull(updatedAt);
         restored.expiresAt = expiresAt;
+        if (persistenceVersion < 0) throw new IllegalArgumentException("Persistence version cannot be negative");
+        restored.persistenceVersion = persistenceVersion;
         restored.events.clear();
         restored.events.addAll(List.copyOf(history));
         restored.validateInvariants();
@@ -299,7 +312,9 @@ public final class Transaction {
                 .add(heldAmount)
                 .add(releasedAmount);
 
-        if (!originalAmount.equals(accountedAmount)) {
+        boolean unallocatedCreated = status == TransactionStatus.CREATED
+                && capturedAmount.isZero() && heldAmount.isZero() && releasedAmount.isZero();
+        if (!unallocatedCreated && !originalAmount.equals(accountedAmount)) {
             throw new IllegalStateException(
                     "Transaction financial invariant violated"
             );
@@ -312,6 +327,14 @@ public final class Transaction {
                     "Transaction amounts cannot be negative"
             );
         }
+    }
+
+    public synchronized long persistenceVersion() { return persistenceVersion; }
+
+    /** Updates the infrastructure concurrency token after a successful database write. */
+    public synchronized void markPersistedVersion(long version) {
+        if (version < 1 || version < persistenceVersion) throw new IllegalArgumentException("Invalid persistence version");
+        persistenceVersion = version;
     }
 
     public synchronized UUID id() {
