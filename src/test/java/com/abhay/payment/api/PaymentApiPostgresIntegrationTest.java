@@ -3,6 +3,7 @@ package com.abhay.payment.api;
 import com.abhay.payment.domain.model.Money;
 import com.abhay.payment.domain.model.Transaction;
 import com.abhay.payment.domain.repository.TransactionRepository;
+import com.abhay.payment.application.port.IdempotencyStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -45,6 +46,7 @@ class PaymentApiPostgresIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired TransactionRepository repository;
     @Autowired Clock clock;
+    @Autowired IdempotencyStore idempotency;
 
     @Test
     void apiCreateReplayAndOutboxAreDurable() throws Exception {
@@ -82,6 +84,25 @@ class PaymentApiPostgresIntegrationTest {
                 .header("Idempotency-Key", key).contentType(APPLICATION_JSON)
                 .content("{\"amount\":\"11.00\",\"currency\":\"INR\"}"))
                 .andExpect(status().isConflict());
+    }
+
+
+    @Test
+    void failedUseCaseRollsBackIdempotencyTransactionAndOutboxTogether() {
+        String key = "rollback-" + UUID.randomUUID();
+        Transaction tx = Transaction.create(Money.of("50.00", "INR"), clock);
+
+        assertThatThrownBy(() -> idempotency.execute(key, "CREATE|rollback", () -> {
+            repository.save(tx);
+            throw new IllegalStateException("simulated failure after aggregate write");
+        })).hasMessageContaining("simulated failure");
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM idempotency_record WHERE idempotency_key=?",
+                Integer.class, key)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM payment_transaction WHERE id=?",
+                Integer.class, tx.id())).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM transaction_outbox WHERE transaction_id=?",
+                Integer.class, tx.id())).isZero();
     }
 
     @Test
