@@ -5,8 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder;
-import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.testcontainers.containers.PostgreSQLContainer;
 import java.time.Instant;
 import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -14,9 +14,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PaymentEventInboxConsumerTest {
     @Test
     void duplicateDeliveryIsPersistedOnlyOnce() throws Exception {
-        var database = new EmbeddedDatabaseBuilder().setType(EmbeddedDatabaseType.H2).build();
-        try {
-            JdbcTemplate jdbc = new JdbcTemplate(database);
+        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:17-alpine")) {
+            postgres.start();
+            var dataSource = new DriverManagerDataSource(postgres.getJdbcUrl(),
+                    postgres.getUsername(), postgres.getPassword());
+            JdbcTemplate jdbc = new JdbcTemplate(dataSource);
             jdbc.execute("""
                 CREATE TABLE payment_event_inbox (
                     consumer_name VARCHAR(100) NOT NULL,
@@ -41,8 +43,6 @@ class PaymentEventInboxConsumerTest {
 
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM payment_event_inbox",
                     Integer.class)).isEqualTo(1);
-        } finally {
-            database.shutdown();
         }
     }
 }
