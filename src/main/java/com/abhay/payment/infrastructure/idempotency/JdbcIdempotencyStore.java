@@ -48,22 +48,32 @@ public class JdbcIdempotencyStore implements IdempotencyStore {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public <T> T execute(String key, String fingerprint, Supplier<T> operation) {
+        return execute("default", key, fingerprint, operation);
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T> T execute(String merchantId, String key, String fingerprint, Supplier<T> operation) {
+        requireText(merchantId, "Merchant identity");
         requireText(key, "Idempotency key");
         requireText(fingerprint, "Request fingerprint");
+        if (!merchantId.matches("[A-Za-z0-9_-]{1,64}") || key.length() > 200) {
+            throw new IllegalArgumentException("Invalid merchant identity or idempotency key");
+        }
         Objects.requireNonNull(operation, "Operation cannot be null");
 
         return (T) transactions.execute(status -> {
             jdbc.update("""
-                INSERT INTO idempotency_record(idempotency_key, request_fingerprint, created_at)
-                VALUES (?, ?, ?) ON CONFLICT (idempotency_key) DO NOTHING
-                """, key, fingerprint, Timestamp.from(clock.instant()));
+                INSERT INTO idempotency_record(merchant_id, idempotency_key, request_fingerprint, created_at)
+                VALUES (?, ?, ?, ?) ON CONFLICT (merchant_id, idempotency_key) DO NOTHING
+                """, merchantId, key, fingerprint, Timestamp.from(clock.instant()));
 
             Record record = jdbc.queryForObject("""
                 SELECT request_fingerprint, response_json
-                FROM idempotency_record WHERE idempotency_key = ? FOR UPDATE
-                """, (rs, row) -> new Record(rs.getString(1), rs.getString(2)), key);
+                FROM idempotency_record
+                WHERE merchant_id = ? AND idempotency_key = ? FOR UPDATE
+                """, (rs, row) -> new Record(rs.getString(1), rs.getString(2)), merchantId, key);
 
             if (!record.fingerprint().equals(fingerprint)) {
                 conflictCounter.increment();
@@ -78,9 +88,9 @@ public class JdbcIdempotencyStore implements IdempotencyStore {
             try {
                 jdbc.update("""
                     UPDATE idempotency_record SET response_json = ?, completed_at = ?
-                    WHERE idempotency_key = ?
+                    WHERE merchant_id = ? AND idempotency_key = ?
                     """, mapper.writeValueAsString(store((TransactionSnapshot) result)),
-                        Timestamp.from(clock.instant()), key);
+                        Timestamp.from(clock.instant()), merchantId, key);
             } catch (JsonProcessingException ex) {
                 throw new IllegalStateException("Idempotency response cannot be serialized", ex);
             }

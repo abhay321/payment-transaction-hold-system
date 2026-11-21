@@ -7,6 +7,7 @@ import com.abhay.payment.application.port.IdempotencyStore;
 import com.abhay.payment.domain.model.Money;
 import com.abhay.payment.domain.model.Transaction;
 import com.abhay.payment.domain.repository.TransactionRepository;
+import com.abhay.payment.domain.repository.TenantAwareTransactionRepository;
 
 import java.time.Clock;
 import java.util.Objects;
@@ -129,6 +130,80 @@ public final class PaymentTransactionService {
     public TransactionSnapshot get(UUID transactionId) {
         Objects.requireNonNull(transactionId, "Transaction id cannot be null");
         return snapshot(find(transactionId));
+    }
+
+    /**
+     * Merchant-scoped API operations. Merchant identity is passed by the
+     * authenticated API adapter and is never accepted from client payloads.
+     */
+    public TransactionSnapshot createForMerchant(String merchantId, Money amount, String key) {
+        Objects.requireNonNull(amount);
+        return idempotency.execute(merchantId, key, "CREATE|" + amount, () -> {
+            Transaction tx = Transaction.create(amount, clock);
+            tenantRepository().save(tx, merchantId);
+            return snapshot(tx);
+        });
+    }
+
+    public TransactionSnapshot holdForMerchant(String merchantId, UUID id, String key) {
+        return idempotency.execute(merchantId, key, "HOLD|" + id, () -> {
+            Transaction tx = find(id, merchantId);
+            synchronized (tx) {
+                tx.hold(clock);
+                tx.setExpiry(expiryPolicy.expiryAt(tx.updatedAt()));
+                tenantRepository().save(tx, merchantId);
+                return snapshot(tx);
+            }
+        });
+    }
+
+    public TransactionSnapshot captureForMerchant(String merchantId, UUID id, Money amount, String key) {
+        Objects.requireNonNull(amount);
+        return idempotency.execute(merchantId, key, "CAPTURE|" + id + "|" + amount, () -> {
+            Transaction tx = find(id, merchantId);
+            synchronized (tx) {
+                tx.capture(amount, clock);
+                tenantRepository().save(tx, merchantId);
+                return snapshot(tx);
+            }
+        });
+    }
+
+    public TransactionSnapshot releaseForMerchant(String merchantId, UUID id, Money amount, String key) {
+        Objects.requireNonNull(amount);
+        return idempotency.execute(merchantId, key, "RELEASE|" + id + "|" + amount, () -> {
+            Transaction tx = find(id, merchantId);
+            synchronized (tx) {
+                tx.release(amount, clock);
+                tenantRepository().save(tx, merchantId);
+                return snapshot(tx);
+            }
+        });
+    }
+
+    public TransactionSnapshot expireForMerchant(String merchantId, UUID id, String key) {
+        return idempotency.execute(merchantId, key, "EXPIRE|" + id, () -> {
+            Transaction tx = find(id, merchantId);
+            synchronized (tx) {
+                tx.expire(clock);
+                tenantRepository().save(tx, merchantId);
+                return snapshot(tx);
+            }
+        });
+    }
+
+    public TransactionSnapshot getForMerchant(String merchantId, UUID id) {
+        return snapshot(find(id, merchantId));
+    }
+
+    private Transaction find(UUID transactionId, String merchantId) {
+        return tenantRepository().findById(transactionId, merchantId)
+                .orElseThrow(() -> new TransactionNotFoundException(transactionId));
+    }
+
+    private TenantAwareTransactionRepository tenantRepository() {
+        if (transactions instanceof TenantAwareTransactionRepository tenantAware) return tenantAware;
+        throw new IllegalStateException("Tenant-aware transaction persistence is not configured");
     }
 
     private TransactionSnapshot snapshot(Transaction transaction) {

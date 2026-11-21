@@ -2,7 +2,7 @@ package com.abhay.payment.infrastructure.persistence;
 
 import com.abhay.payment.domain.event.*;
 import com.abhay.payment.domain.model.*;
-import com.abhay.payment.domain.repository.TransactionRepository;
+import com.abhay.payment.domain.repository.TenantAwareTransactionRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -16,7 +16,7 @@ import java.time.Instant;
 import java.util.*;
 
 @Repository
-public class JdbcTransactionRepository implements TransactionRepository {
+public class JdbcTransactionRepository implements TenantAwareTransactionRepository {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final ObjectMapper mapper;
@@ -30,17 +30,25 @@ public class JdbcTransactionRepository implements TransactionRepository {
         this.clock = clock;
     }
 
+    /** Legacy single-tenant adapter method retained for domain/repository tests. */
     @Override
     public void save(Transaction tx) {
+        save(tx, "default");
+    }
+
+    @Override
+    public void save(Transaction tx, String merchantId) {
         Objects.requireNonNull(tx);
+        requireMerchantId(merchantId);
         transactions.executeWithoutResult(status -> {
             long currentVersion = tx.persistenceVersion();
             if (currentVersion == 0) {
                 jdbc.update("""
-                    INSERT INTO payment_transaction(id, original_amount, currency, captured_amount,
-                        held_amount, released_amount, status, created_at, updated_at, expires_at, version)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-                    """, tx.id(), tx.originalAmount().amount(),
+                    INSERT INTO payment_transaction(id, merchant_id, original_amount, currency,
+                        captured_amount, held_amount, released_amount, status, created_at,
+                        updated_at, expires_at, version)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    """, tx.id(), merchantId, tx.originalAmount().amount(),
                         tx.originalAmount().currency().getCurrencyCode(), tx.capturedAmount().amount(),
                         tx.heldAmount().amount(), tx.releasedAmount().amount(), tx.status().name(),
                         Timestamp.from(tx.createdAt()), Timestamp.from(tx.updatedAt()),
@@ -50,14 +58,14 @@ public class JdbcTransactionRepository implements TransactionRepository {
                 int updated = jdbc.update("""
                     UPDATE payment_transaction SET captured_amount=?, held_amount=?, released_amount=?,
                         status=?, updated_at=?, expires_at=?, version=version+1
-                    WHERE id=? AND version=?
+                    WHERE id=? AND merchant_id=? AND version=?
                     """, tx.capturedAmount().amount(), tx.heldAmount().amount(),
                         tx.releasedAmount().amount(), tx.status().name(), Timestamp.from(tx.updatedAt()),
                         tx.expiresAt() == null ? null : Timestamp.from(tx.expiresAt()),
-                        tx.id(), currentVersion);
+                        tx.id(), merchantId, currentVersion);
                 if (updated != 1) {
                     throw new OptimisticLockingFailureException(
-                            "Transaction " + tx.id() + " was modified by another request");
+                            "Transaction was modified by another request or is not accessible");
                 }
                 tx.markPersistedVersion(currentVersion + 1);
             }
@@ -104,9 +112,18 @@ public class JdbcTransactionRepository implements TransactionRepository {
         }
     }
 
+    /** Legacy single-tenant lookup retained for repository-level tests. */
     @Override
     public Optional<Transaction> findById(UUID id) {
-        List<Transaction> found = jdbc.query("SELECT * FROM payment_transaction WHERE id=?",
+        return findById(id, "default");
+    }
+
+    @Override
+    public Optional<Transaction> findById(UUID id, String merchantId) {
+        Objects.requireNonNull(id);
+        requireMerchantId(merchantId);
+        List<Transaction> found = jdbc.query(
+            "SELECT * FROM payment_transaction WHERE id=? AND merchant_id=?",
             (rs, row) -> {
                 String currency = rs.getString("currency");
                 Money original = readMoney(rs.getBigDecimal("original_amount"), currency);
@@ -125,8 +142,14 @@ public class JdbcTransactionRepository implements TransactionRepository {
                     rs.getTimestamp("created_at").toInstant(),
                     rs.getTimestamp("updated_at").toInstant(),
                     expiry == null ? null : expiry.toInstant(), history, rs.getLong("version"));
-            }, id);
+            }, id, merchantId);
         return found.stream().findFirst();
+    }
+
+    private void requireMerchantId(String merchantId) {
+        if (merchantId == null || !merchantId.matches("[A-Za-z0-9_-]{1,64}")) {
+            throw new IllegalArgumentException("Invalid merchant identity");
+        }
     }
 
     private Money readMoney(java.math.BigDecimal amount, String currencyCode) {

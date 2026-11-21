@@ -62,3 +62,21 @@ The outbox dispatcher uses `FOR UPDATE SKIP LOCKED` to support multiple pollers.
 ## Integration tests
 
 `JdbcTransactionRepositoryTest` verifies optimistic-lock rejection, aggregate/audit/outbox persistence and Flyway schema behavior. `PaymentApiPostgresIntegrationTest` runs the HTTP API against PostgreSQL Testcontainers and verifies idempotency replay, fingerprint conflicts and cross-load stale-write rejection. Docker is required to execute the PostgreSQL Testcontainers suite.
+
+
+## Multi-tenant security and isolation
+
+Flyway V3 creates merchant and merchant-user records, assigns existing transactions and idempotency rows to the `default` merchant, adds `payment_transaction.merchant_id`, and changes idempotency uniqueness to `(merchant_id, idempotency_key)`.
+
+The authenticated `MerchantPrincipal` is the only source of merchant identity in HTTP operations. The API does not accept merchant identity from request data. Tenant-aware repository methods constrain both transaction lookup and update by transaction ID and merchant ID. Cross-merchant reads and mutations resolve as 404, avoiding resource-existence disclosure.
+
+Authorization roles are:
+- `MERCHANT_ADMIN`: read and write.
+- `MERCHANT_OPERATOR`: read and write.
+- `MERCHANT_READ_ONLY`: read only.
+
+For local/demo bootstrap, set `PAYMENT_MERCHANT_USERS` to semicolon-separated `merchant-id|username|password|ROLE` entries. Passwords must be at least 16 characters and are BCrypt-hashed before persistence. When this setting is absent, the legacy `PAYMENT_API_USERNAME` / `PAYMENT_API_PASSWORD` pair bootstraps a `default` merchant admin. Do not use this bootstrap mechanism as a production identity-management system; integrate a managed identity provider and secret-management/provisioning lifecycle.
+
+The security audit logger records successful and failed authentication events and successful transaction actions. It logs merchant ID, subject, action, transaction ID and correlation ID when available, and does not log credentials, authorization headers, idempotency keys or payment payloads.
+
+PostgreSQL integration tests cover cross-merchant read/write isolation, independent reuse of the same idempotency key by different merchants, read-only role enforcement, and rejection of a client-supplied merchant identity.

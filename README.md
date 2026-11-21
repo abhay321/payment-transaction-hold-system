@@ -482,3 +482,25 @@ The V2 Flyway migration adds the idempotency ledger, optimistic-lock version, an
 The outbox dispatcher uses row-level locking with SKIP LOCKED so multiple instances can poll concurrently. Delivery is at-least-once: a process crash after external publication but before marking the row published can cause a duplicate. Consumers must deduplicate using the stable outbox event ID. The included logging publisher is only a local adapter, not a message broker integration. Failed publishes use bounded exponential retry delay and retain the last error.
 
 The PostgreSQL Testcontainers suite covers API idempotency replay and conflict, durable outbox writes, and stale aggregate rejection. Run `mvn clean verify`; Docker must be available for the PostgreSQL integration suite. The API remains an educational reference and must not process real funds. Production use additionally requires tenant authorization, secrets management, TLS/network policy, broker integration, consumer deduplication, retention/cleanup policies, alerting, reconciliation and security review.
+
+
+23. Multi-tenant security and isolation
+
+The HTTP API resolves the merchant from the authenticated `MerchantPrincipal`. Clients cannot select a merchant through request bodies, query parameters or headers. Transaction reads and writes include the authenticated merchant ID in their database predicates; an unknown or cross-merchant transaction is reported as 404 to avoid disclosing another merchant's resource.
+
+Idempotency is scoped by the pair `(merchant_id, idempotency_key)`. The same client key may be used independently by two merchants without replaying or conflicting with the other merchant's operation. Existing single-tenant rows are migrated to the `default` merchant by Flyway V3.
+
+Roles:
+- `MERCHANT_ADMIN`: read and mutate transactions.
+- `MERCHANT_OPERATOR`: read and mutate transactions.
+- `MERCHANT_READ_ONLY`: read transactions only.
+
+For local/demo startup, configure `PAYMENT_MERCHANT_USERS` as semicolon-separated entries in the form `merchant-id|username|password|ROLE`. Example (use unique strong secrets in your environment):
+
+```bash
+export PAYMENT_MERCHANT_USERS='merchant-a|merchant-a-api|<strong-secret-at-least-16-chars>|MERCHANT_ADMIN;merchant-b|merchant-b-api|<another-strong-secret>|MERCHANT_OPERATOR;merchant-a|merchant-a-reader|<reader-secret-at-least-16-chars>|MERCHANT_READ_ONLY'
+```
+
+Passwords are BCrypt-hashed before storage in `merchant_user`; they are not written to logs. If `PAYMENT_MERCHANT_USERS` is absent, the legacy `PAYMENT_API_USERNAME` and `PAYMENT_API_PASSWORD` variables bootstrap a `default` merchant admin for backward-compatible local use. Do not use environment-based bootstrap as a production identity lifecycle; use a managed identity provider, secret manager, provisioning workflow, rotation and revocation policy.
+
+Security audit records cover successful merchant authentication, failed authentication attempts and successful transaction actions. Records include merchant, subject, action, transaction ID and correlation ID where available; they deliberately exclude passwords, authorization headers and payment request payloads.
