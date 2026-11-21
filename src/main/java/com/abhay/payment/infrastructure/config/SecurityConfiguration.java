@@ -20,9 +20,11 @@ public class SecurityConfiguration {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/transactions/**")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/transactions/**",
+                                "/api/v1/reconciliation/**")
                             .hasAnyRole("MERCHANT_ADMIN", "MERCHANT_OPERATOR", "MERCHANT_READ_ONLY")
-                        .requestMatchers(HttpMethod.POST, "/api/v1/transactions/**")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/transactions/**",
+                                "/api/v1/reconciliation/**", "/api/v1/outbox/**")
                             .hasAnyRole("MERCHANT_ADMIN", "MERCHANT_OPERATOR")
                         .anyRequest().denyAll())
                 .httpBasic(Customizer.withDefaults())
