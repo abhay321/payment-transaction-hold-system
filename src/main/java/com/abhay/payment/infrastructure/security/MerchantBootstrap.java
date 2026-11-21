@@ -55,10 +55,10 @@ public final class MerchantBootstrap implements ApplicationRunner {
                     ON CONFLICT (id) DO NOTHING
                     """, fields[0], fields[0]);
             jdbc.update("""
-                    INSERT INTO merchant_user(username, merchant_id, password_hash, role, enabled)
+                    INSERT INTO merchant_user(username, merchant_id, password_hash, merchant_role, enabled)
                     VALUES (?, ?, ?, ?, TRUE)
                     ON CONFLICT (username) DO UPDATE SET merchant_id=EXCLUDED.merchant_id,
-                        password_hash=EXCLUDED.password_hash, role=EXCLUDED.role, enabled=TRUE
+                        password_hash=EXCLUDED.password_hash, merchant_role=EXCLUDED.merchant_role, enabled=TRUE
                     """, fields[1], fields[0], encoder.encode(fields[2]), fields[3]);
         });
     }
