@@ -47,15 +47,27 @@ public class ReconciliationService {
             }
         }
         UUID id = UUID.randomUUID();
-        jdbc.update("""
+        int inserted = jdbc.update("""
             INSERT INTO provider_settlement_record(id, merchant_id, transaction_id,
                 provider_reference, settled_amount, currency, provider_status, settled_at,
                 reconciliation_status, exception_reason)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (merchant_id, provider_reference) DO NOTHING
             """, id, merchantId, input.transactionId(), input.providerReference(),
                 input.settledAmount(), input.currency(), input.providerStatus(),
                 Timestamp.from(input.settledAt()), result, reason);
-        return jdbc.queryForMap("SELECT * FROM provider_settlement_record WHERE id=?", id);
+        Map<String, Object> persisted = jdbc.queryForMap("""
+            SELECT * FROM provider_settlement_record
+            WHERE merchant_id=? AND provider_reference=?
+            """, merchantId, input.providerReference());
+        if (inserted == 0 && (!input.transactionId().equals(persisted.get("transaction_id"))
+                || ((BigDecimal) persisted.get("settled_amount")).compareTo(input.settledAmount()) != 0
+                || !input.currency().equals(persisted.get("currency"))
+                || !input.providerStatus().equals(persisted.get("provider_status"))
+                || !input.settledAt().equals(((Timestamp) persisted.get("settled_at")).toInstant()))) {
+            throw new IllegalArgumentException("Provider reference was already used for different settlement data");
+        }
+        return persisted;
     }
 
     public List<Map<String, Object>> exceptions(String merchantId) {
