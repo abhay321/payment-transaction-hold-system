@@ -12,7 +12,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -24,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -31,6 +31,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 class PaymentApiPostgresIntegrationTest {
+    private static final String ADMIN_A_PASSWORD = "merchant-a-password-123";
+    private static final String ADMIN_B_PASSWORD = "merchant-b-password-123";
+    private static final String READER_PASSWORD = "merchant-reader-password-123";
+
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
 
@@ -39,7 +43,11 @@ class PaymentApiPostgresIntegrationTest {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
-        registry.add("PAYMENT_API_PASSWORD", () -> "integration-test-password");
+        registry.add("PAYMENT_MERCHANT_USERS", () -> String.join(";",
+                "default|payment-api|integration-test-password|MERCHANT_ADMIN",
+                "merchant-a|merchant-a-user|" + ADMIN_A_PASSWORD + "|MERCHANT_ADMIN",
+                "merchant-b|merchant-b-user|" + ADMIN_B_PASSWORD + "|MERCHANT_ADMIN",
+                "merchant-a|merchant-a-reader|" + READER_PASSWORD + "|MERCHANT_READ_ONLY"));
         registry.add("payment.outbox.poll-delay", () -> "60000");
     }
 
@@ -66,7 +74,7 @@ class PaymentApiPostgresIntegrationTest {
 
         String id = com.jayway.jsonpath.JsonPath.read(first, "$.id");
         assertThat(com.jayway.jsonpath.JsonPath.read(second, "$.id").toString()).isEqualTo(id);
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM idempotency_record WHERE idempotency_key=?", Integer.class, key)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM idempotency_record WHERE merchant_id='default' AND idempotency_key=?", Integer.class, key)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM transaction_event WHERE transaction_id=?", Integer.class, UUID.fromString(id))).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM transaction_outbox WHERE transaction_id=?", Integer.class, UUID.fromString(id))).isEqualTo(1);
     }
@@ -87,7 +95,6 @@ class PaymentApiPostgresIntegrationTest {
                 .andExpect(status().isConflict());
     }
 
-
     @Test
     void failedUseCaseRollsBackIdempotencyTransactionAndOutboxTogether() {
         String key = "rollback-" + UUID.randomUUID();
@@ -98,7 +105,7 @@ class PaymentApiPostgresIntegrationTest {
             throw new IllegalStateException("simulated failure after aggregate write");
         })).hasMessageContaining("simulated failure");
 
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM idempotency_record WHERE idempotency_key=?",
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM idempotency_record WHERE merchant_id='default' AND idempotency_key=?",
                 Integer.class, key)).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM payment_transaction WHERE id=?",
                 Integer.class, tx.id())).isZero();
@@ -122,5 +129,82 @@ class PaymentApiPostgresIntegrationTest {
         assertThat(repository.findById(created.id()).orElseThrow().events()).hasSize(2);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM transaction_outbox WHERE transaction_id=?",
                 Integer.class, created.id())).isEqualTo(2);
+    }
+
+    @Test
+    void merchantsCannotReadOrMutateAnotherMerchantsTransaction() throws Exception {
+        String body = "{\"amount\":\"125.00\",\"currency\":\"INR\"}";
+        String created = mvc.perform(post("/api/v1/transactions")
+                .with(httpBasic("merchant-a-user", ADMIN_A_PASSWORD))
+                .header("Idempotency-Key", "merchant-a-create-" + UUID.randomUUID())
+                .contentType(APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String transactionId = com.jayway.jsonpath.JsonPath.read(created, "$.id");
+
+        mvc.perform(get("/api/v1/transactions/" + transactionId)
+                .with(httpBasic("merchant-b-user", ADMIN_B_PASSWORD)))
+                .andExpect(status().isNotFound());
+
+        mvc.perform(post("/api/v1/transactions/" + transactionId + "/hold")
+                .with(httpBasic("merchant-b-user", ADMIN_B_PASSWORD))
+                .header("Idempotency-Key", "merchant-b-hold-" + UUID.randomUUID()))
+                .andExpect(status().isNotFound());
+
+        assertThat(jdbc.queryForObject("SELECT merchant_id FROM payment_transaction WHERE id=?",
+                String.class, UUID.fromString(transactionId))).isEqualTo("merchant-a");
+    }
+
+    @Test
+    void idempotencyKeysAreScopedPerMerchant() throws Exception {
+        String sharedKey = "shared-key-" + UUID.randomUUID();
+        String body = "{\"amount\":\"75.00\",\"currency\":\"INR\"}";
+
+        String merchantA = mvc.perform(post("/api/v1/transactions")
+                .with(httpBasic("merchant-a-user", ADMIN_A_PASSWORD))
+                .header("Idempotency-Key", sharedKey).contentType(APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+
+        String merchantB = mvc.perform(post("/api/v1/transactions")
+                .with(httpBasic("merchant-b-user", ADMIN_B_PASSWORD))
+                .header("Idempotency-Key", sharedKey).contentType(APPLICATION_JSON).content(body))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+
+        String idA = com.jayway.jsonpath.JsonPath.read(merchantA, "$.id");
+        String idB = com.jayway.jsonpath.JsonPath.read(merchantB, "$.id");
+        assertThat(idA).isNotEqualTo(idB);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM idempotency_record WHERE idempotency_key=? AND merchant_id IN ('merchant-a','merchant-b')",
+                Integer.class, sharedKey)).isEqualTo(2);
+    }
+
+    @Test
+    void readOnlyMerchantRoleCanReadButCannotCreate() throws Exception {
+        String created = mvc.perform(post("/api/v1/transactions")
+                .with(httpBasic("merchant-a-user", ADMIN_A_PASSWORD))
+                .header("Idempotency-Key", "reader-test-" + UUID.randomUUID())
+                .contentType(APPLICATION_JSON)
+                .content("{\"amount\":\"15.00\",\"currency\":\"INR\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String id = com.jayway.jsonpath.JsonPath.read(created, "$.id");
+
+        mvc.perform(get("/api/v1/transactions/" + id)
+                .with(httpBasic("merchant-a-reader", READER_PASSWORD)))
+                .andExpect(status().isOk());
+
+        mvc.perform(post("/api/v1/transactions")
+                .with(httpBasic("merchant-a-reader", READER_PASSWORD))
+                .header("Idempotency-Key", "reader-write-" + UUID.randomUUID())
+                .contentType(APPLICATION_JSON)
+                .content("{\"amount\":\"15.00\",\"currency\":\"INR\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void requestCannotChooseItsMerchantIdentity() throws Exception {
+        mvc.perform(post("/api/v1/transactions")
+                .with(httpBasic("merchant-a-user", ADMIN_A_PASSWORD))
+                .header("Idempotency-Key", "forged-merchant-" + UUID.randomUUID())
+                .contentType(APPLICATION_JSON)
+                .content("{\"amount\":\"15.00\",\"currency\":\"INR\",\"merchantId\":\"merchant-b\"}"))
+                .andExpect(status().isBadRequest());
     }
 }
