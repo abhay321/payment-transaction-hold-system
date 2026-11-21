@@ -22,12 +22,12 @@ JaCoCo generates target/site/jacoco/index.html. The original 62-test core suite 
 
 ## Production gaps
 
-1. Idempotency remains process-local and is lost on restart. Persist idempotency records and commit them atomically with aggregate state.
-2. Service synchronization is JVM-local. Add optimistic versioning or a lock held across the complete use case for multi-instance deployments.
-3. Add PostgreSQL Testcontainers tests for round-trip, rollback and concurrency.
-4. Add tenant-scoped authentication/authorization, rate limiting, secret rotation and security audit.
-5. Add structured logs, correlation IDs, metrics and alert thresholds.
-6. Provider integration, reconciliation, outbox delivery and recovery runbooks remain out of scope.
+1. The included idempotency key scope is global to this sample API. A multi-tenant system must scope keys by authenticated merchant/account and define retention/expiry.
+2. The outbox dispatcher provides at-least-once delivery. A crash after publishing but before marking an event published can produce duplicates; downstream consumers must deduplicate by outbox event ID.
+3. The included publisher is a structured-log adapter, not Kafka/SNS or another durable broker integration. A real deployment must configure a broker publisher and consumer recovery policy.
+4. Tenant-scoped authorization, rate limiting, secret rotation, TLS/deployment policy and security audit remain required.
+5. Configure an OTLP collector endpoint, dashboards, SLOs and alert thresholds; tracing export is optional and depends on a reachable collector.
+6. Provider integration, reconciliation, retention/cleanup jobs and operational recovery runbooks remain out of scope.
 
 This is an educational reference runtime, not a production payment processor. Never use it to authorize, capture or move real funds.
 
@@ -47,3 +47,18 @@ The first CI report for this branch (JaCoCo 0.8.14, 24 classes) reports **82% in
 | Runtime configuration/security | 0% | 0% | Add application-context tests for missing credentials, configured credentials and authorization rules |
 
 The REST API and runtime configuration are currently untested by the automated suite. The 82% aggregate figure therefore must not be interpreted as production-level coverage. The workflow publishes the full JaCoCo HTML report as the jacoco-report artifact for each run.
+
+
+## Durable consistency implementation
+
+Flyway V2 adds `idempotency_record`, `transaction_outbox`, and `payment_transaction.version`. `JdbcIdempotencyStore` starts a REQUIRED transaction, inserts/locks the idempotency row, executes the application operation, and stores the original response before commit. `JdbcTransactionRepository` joins that transaction, performs compare-and-set updates with `WHERE id = ? AND version = ?`, appends audit rows, and inserts matching outbox rows. A stale version raises an optimistic-lock exception mapped to HTTP 409. This keeps the aggregate, idempotency result, audit history and outbox record atomic.
+
+The outbox dispatcher uses `FOR UPDATE SKIP LOCKED` to support multiple pollers. It retries failed publishes with bounded exponential delay. Delivery is at-least-once, not exactly-once. The included logging publisher demonstrates the adapter boundary; it must be replaced by a real broker publisher for integration with downstream services. Downstream consumers must be idempotent and deduplicate using the outbox ID.
+
+## Observability
+
+`X-Correlation-Id` is accepted when it matches a restricted character set, otherwise generated; it is echoed in the response and attached to logs via MDC. Logback emits JSON logs. Micrometer counters include `payment.idempotency.replay`, `payment.idempotency.conflict`, `payment.outbox.published` and `payment.outbox.failed`. Actuator exposes health, metrics and Prometheus; Micrometer Tracing is configured for OTLP export using `OTEL_EXPORTER_OTLP_ENDPOINT`.
+
+## Integration tests
+
+`JdbcTransactionRepositoryTest` verifies optimistic-lock rejection, aggregate/audit/outbox persistence and Flyway schema behavior. `PaymentApiPostgresIntegrationTest` runs the HTTP API against PostgreSQL Testcontainers and verifies idempotency replay, fingerprint conflicts and cross-load stale-write rejection. Docker is required to execute the PostgreSQL Testcontainers suite.
