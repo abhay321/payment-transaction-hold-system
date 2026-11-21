@@ -215,13 +215,16 @@ class PaymentApiPostgresIntegrationTest {
 
     @Test
     void reconciliationMatchesCapturedSettlementAndSurfacesAmountMismatch() throws Exception {
-        String key = "recon-create-" + UUID.randomUUID();
         String created = mvc.perform(post("/api/v1/transactions")
                 .with(httpBasic("merchant-a-user", ADMIN_A_PASSWORD))
-                .header("Idempotency-Key", key).contentType(APPLICATION_JSON)
-                .content("{\\"amount\\":\\"125.00\\",\\"currency\\":\\"INR\\"}"))
+                .header("Idempotency-Key", "recon-create-" + UUID.randomUUID())
+                .contentType(APPLICATION_JSON)
+                .content("""
+                    {"amount":"125.00","currency":"INR"}
+                    """))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         String id = com.jayway.jsonpath.JsonPath.read(created, "$.id");
+
         mvc.perform(post("/api/v1/transactions/" + id + "/hold")
                 .with(httpBasic("merchant-a-user", ADMIN_A_PASSWORD))
                 .header("Idempotency-Key", "recon-hold-" + UUID.randomUUID()))
@@ -230,15 +233,19 @@ class PaymentApiPostgresIntegrationTest {
                 .with(httpBasic("merchant-a-user", ADMIN_A_PASSWORD))
                 .header("Idempotency-Key", "recon-capture-" + UUID.randomUUID())
                 .contentType(APPLICATION_JSON)
-                .content("{\\"amount\\":\\"125.00\\",\\"currency\\":\\"INR\\"}"))
+                .content("""
+                    {"amount":"125.00","currency":"INR"}
+                    """))
                 .andExpect(status().isOk());
 
+        String matchedReference = "provider-ok-" + UUID.randomUUID();
         String matched = mvc.perform(post("/api/v1/reconciliation/settlements")
                 .with(httpBasic("merchant-a-user", ADMIN_A_PASSWORD))
                 .contentType(APPLICATION_JSON)
-                .content("{\\"transactionId\\":\\""+id+"\\",\\"providerReference\\":\\"provider-ok-"
-                        + UUID.randomUUID() + "\\",\\"settledAmount\\":\\"125.00\\",\\"currency\\":\\"INR\\","
-                        + "\\"providerStatus\\":\\"CAPTURED\\",\\"settledAt\\":\\"2026-11-22T10:00:00Z\\"}"))
+                .content("""
+                    {"transactionId":"%s","providerReference":"%s","settledAmount":"125.00",
+                     "currency":"INR","providerStatus":"CAPTURED","settledAt":"2026-11-22T10:00:00Z"}
+                    """.formatted(id, matchedReference)))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         assertThat(com.jayway.jsonpath.JsonPath.read(matched, "$.reconciliation_status").toString())
                 .isEqualTo("MATCHED");
@@ -246,9 +253,10 @@ class PaymentApiPostgresIntegrationTest {
         String mismatch = mvc.perform(post("/api/v1/reconciliation/settlements")
                 .with(httpBasic("merchant-a-user", ADMIN_A_PASSWORD))
                 .contentType(APPLICATION_JSON)
-                .content("{\\"transactionId\\":\\""+id+"\\",\\"providerReference\\":\\"provider-bad-"
-                        + UUID.randomUUID() + "\\",\\"settledAmount\\":\\"124.00\\",\\"currency\\":\\"INR\\","
-                        + "\\"providerStatus\\":\\"CAPTURED\\",\\"settledAt\\":\\"2026-11-22T10:00:00Z\\"}"))
+                .content("""
+                    {"transactionId":"%s","providerReference":"%s","settledAmount":"124.00",
+                     "currency":"INR","providerStatus":"CAPTURED","settledAt":"2026-11-22T10:00:00Z"}
+                    """.formatted(id, "provider-bad-" + UUID.randomUUID())))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         assertThat(com.jayway.jsonpath.JsonPath.read(mismatch, "$.reconciliation_status").toString())
                 .isEqualTo("MISMATCH");
