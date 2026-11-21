@@ -46,10 +46,10 @@ CREATE TABLE merchant_user (
     username VARCHAR(100) PRIMARY KEY,
     merchant_id VARCHAR(64) NOT NULL REFERENCES merchant(id),
     password_hash VARCHAR(100) NOT NULL,
-    role VARCHAR(32) NOT NULL,
+    merchant_role VARCHAR(32) NOT NULL,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT ck_merchant_user_role CHECK (role IN ('MERCHANT_ADMIN', 'MERCHANT_OPERATOR', 'MERCHANT_READ_ONLY'))
+    CONSTRAINT ck_merchant_user_role CHECK (merchant_role IN ('MERCHANT_ADMIN', 'MERCHANT_OPERATOR', 'MERCHANT_READ_ONLY'))
 );
 
 CREATE INDEX idx_merchant_user_merchant ON merchant_user(merchant_id);
