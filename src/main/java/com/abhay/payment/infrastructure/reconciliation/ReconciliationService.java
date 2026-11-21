@@ -63,8 +63,7 @@ public class ReconciliationService {
         if (inserted == 0 && (!input.transactionId().equals(persisted.get("transaction_id"))
                 || ((BigDecimal) persisted.get("settled_amount")).compareTo(input.settledAmount()) != 0
                 || !input.currency().equals(persisted.get("currency"))
-                || !input.providerStatus().equals(persisted.get("provider_status"))
-                || !input.settledAt().equals(((Timestamp) persisted.get("settled_at")).toInstant()))) {
+                || !input.providerStatus().equals(persisted.get("provider_status")))) {
             throw new IllegalArgumentException("Provider reference was already used for different settlement data");
         }
         return persisted;
