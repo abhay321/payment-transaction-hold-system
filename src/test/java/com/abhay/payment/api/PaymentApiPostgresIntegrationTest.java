@@ -200,11 +200,16 @@ class PaymentApiPostgresIntegrationTest {
 
     @Test
     void requestCannotChooseItsMerchantIdentity() throws Exception {
-        mvc.perform(post("/api/v1/transactions")
+        String response = mvc.perform(post("/api/v1/transactions")
                 .with(httpBasic("merchant-a-user", ADMIN_A_PASSWORD))
                 .header("Idempotency-Key", "forged-merchant-" + UUID.randomUUID())
                 .contentType(APPLICATION_JSON)
                 .content("{\"amount\":\"15.00\",\"currency\":\"INR\",\"merchantId\":\"merchant-b\"}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+
+        String id = com.jayway.jsonpath.JsonPath.read(response, "$.id");
+        assertThat(jdbc.queryForObject("SELECT merchant_id FROM payment_transaction WHERE id=?",
+                String.class, UUID.fromString(id))).isEqualTo("merchant-a");
     }
 }
