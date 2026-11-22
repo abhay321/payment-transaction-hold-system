@@ -504,3 +504,15 @@ export PAYMENT_MERCHANT_USERS='merchant-a|merchant-a-api|<strong-secret-at-least
 Passwords are BCrypt-hashed before storage in `merchant_user`; they are not written to logs. If `PAYMENT_MERCHANT_USERS` is absent, the legacy `PAYMENT_API_USERNAME` and `PAYMENT_API_PASSWORD` variables bootstrap a `default` merchant admin for backward-compatible local use. Do not use environment-based bootstrap as a production identity lifecycle; use a managed identity provider, secret manager, provisioning workflow, rotation and revocation policy.
 
 Security audit records cover successful merchant authentication, failed authentication attempts and successful transaction actions. Records include merchant, subject, action, transaction ID and correlation ID where available; they deliberately exclude passwords, authorization headers and payment request payloads.
+
+
+
+24. Reliable event delivery with Apache Kafka and reconciliation
+
+Apache Kafka is the open-source broker used for the local event-delivery example. Start PostgreSQL and Kafka with `docker compose up -d`. Kafka is available at `localhost:9092`. Set `PAYMENT_KAFKA_ENABLED=true` before starting the application to replace the local logging publisher with the Kafka adapter; the default remains the logging adapter so existing lightweight runs do not require Kafka.
+
+The outbox publisher waits for the Kafka broker acknowledgement before the dispatcher marks an event as published. This does not create exactly-once delivery: a process crash after broker acknowledgement and before the database commit can publish the same event again. Consumers persist a unique `(consumer_name, event_id)` inbox key to make redelivery idempotent. The event key includes merchant and transaction identity to keep a transaction's events ordered within a partition. Outbox failures use bounded exponential retry and move to a dead-letter state after `PAYMENT_OUTBOX_MAX_ATTEMPTS`; an authenticated merchant operator can request replay through `POST /api/v1/outbox/{eventId}/replay`.
+
+Reconciliation accepts imported CAPTURED settlement records through `POST /api/v1/reconciliation/settlements` and lists tenant-scoped mismatches/unmatched records through `GET /api/v1/reconciliation/exceptions`. A match requires a merchant-owned transaction in CAPTURED or PARTIALLY_CAPTURED state and an exact captured amount/currency match. This is a demonstration ingestion API, not a bank/provider connector; it records exceptions and never changes transaction balances or moves funds. Duplicate provider references are rejected by the database uniqueness constraint.
+
+The Kafka consumer stores a durable inbox receipt. Extend the same database transaction with downstream projection/effect writes before acknowledging a message; never rely on Kafka delivery alone for exactly-once business effects. Local broker testing requires Docker. This remains an educational reference system, not production payment infrastructure.

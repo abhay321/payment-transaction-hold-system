@@ -7,6 +7,22 @@ spring:
     password: ${DATABASE_PASSWORD:payment}
   flyway:
     enabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 10
+      properties:
+        enable.idempotence: true
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      properties:
+        isolation.level: read_committed
 management:
   endpoints:
     web:
@@ -27,6 +43,12 @@ payment:
     duration: ${PAYMENT_HOLD_DURATION:PT30M}
   outbox:
     poll-delay: ${PAYMENT_OUTBOX_POLL_DELAY:1000}
+    max-attempts: ${PAYMENT_OUTBOX_MAX_ATTEMPTS:10}
+  events:
+    kafka:
+      enabled: ${PAYMENT_KAFKA_ENABLED:false}
+    topic: ${PAYMENT_EVENTS_TOPIC:payment.transaction.events}
+    consumer-group: ${PAYMENT_EVENTS_CONSUMER_GROUP:payment-event-inbox}
 server:
   error:
     include-message: never
